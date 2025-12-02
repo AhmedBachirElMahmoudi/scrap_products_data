@@ -8,6 +8,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 import traceback
 from database import get_disway_connection
+import mysql.connector
 from datetime import datetime
 from contextlib import contextmanager
 
@@ -29,7 +30,10 @@ def get_db_connection():
 def create_driver():
     """Crée et configure le driver Selenium"""
     options = webdriver.FirefoxOptions()
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
     driver = webdriver.Firefox(options=options)
+    driver.implicitly_wait(10)
     return driver
 
 def login_disway(driver):

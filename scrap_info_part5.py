@@ -1144,7 +1144,6 @@ def extract_brand_tabtel(soup):
     except Exception as e:
         print(f"❌ Erreur extraction marque Tabtel: {e}")
         return None
-
 def extract_brand_crenova(soup):
     """Extrait la marque depuis Crenova - VERSION ULTRA-CORRIGÉE"""
     try:

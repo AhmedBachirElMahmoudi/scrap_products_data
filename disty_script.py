@@ -301,7 +301,7 @@ def scrape_disty_products():
                     
                     if page_num > 1:
                         driver.get(page_url)
-                        # time.sleep(2)
+                        time.sleep(2)
 
                     products = driver.find_elements(By.CLASS_NAME, 'item-prd')
                     
