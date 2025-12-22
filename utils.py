@@ -444,6 +444,81 @@ def normalize_image_url(url, base_url):
     
     return url
 
+def extract_price(price_text):
+    """
+    Extrait le prix numérique depuis un texte.
+    Retourne un float ou None si pas de prix trouvé.
+    
+    Examples:
+        "1,299.00 MAD" -> 1299.00
+        "Prix: 2 500,00 DH" -> 2500.00
+        "12.999,99" -> 12999.99
+    """
+    if not price_text:
+        return None
+    
+    # Convertir en string si ce n'est pas déjà le cas
+    price_text = str(price_text)
+    
+    # Supprimer les textes communs (MAD, DH, Prix, etc.)
+    price_text = re.sub(r'(MAD|DH|Dhs?|€|EUR|USD|\$|Prix|Price|TTC|HT)', '', price_text, flags=re.IGNORECASE)
+    
+    # Supprimer les espaces
+    price_text = price_text.strip()
+    
+    # Trouver tous les nombres (avec virgules, points, espaces)
+    # Pattern pour capturer: 1,299.00 ou 1 299,00 ou 12999.99
+    matches = re.findall(r'[\d\s,\.]+', price_text)
+    
+    if not matches:
+        return None
+    
+    # Prendre le premier match (généralement le prix)
+    price_str = matches[0].strip()
+    
+    # Normaliser le format:
+    # 1. Supprimer les espaces
+    price_str = price_str.replace(' ', '')
+    
+    # 2. Déterminer si c'est format français (1.299,00) ou anglais (1,299.00)
+    # Si le dernier séparateur est une virgule, c'est français
+    if ',' in price_str and '.' in price_str:
+        # Les deux séparateurs présents
+        last_comma = price_str.rfind(',')
+        last_dot = price_str.rfind('.')
+        
+        if last_comma > last_dot:
+            # Format français: 1.299,00
+            price_str = price_str.replace('.', '').replace(',', '.')
+        else:
+            # Format anglais: 1,299.00
+            price_str = price_str.replace(',', '')
+    elif ',' in price_str:
+        # Seulement virgule
+        # Si 2 chiffres après la virgule, c'est un séparateur décimal
+        parts = price_str.split(',')
+        if len(parts[-1]) == 2:
+            # Format français: 1299,00
+            price_str = price_str.replace(',', '.')
+        else:
+            # Séparateur de milliers: 1,299
+            price_str = price_str.replace(',', '')
+    elif '.' in price_str:
+        # Seulement point
+        parts = price_str.split('.')
+        if len(parts[-1]) == 2:
+            # Format anglais: 1299.00 (déjà bon)
+            pass
+        else:
+            # Séparateur de milliers: 1.299
+            price_str = price_str.replace('.', '')
+    
+    try:
+        price = float(price_str)
+        return round(price, 2)
+    except ValueError:
+        return None
+
 def ensure_data_consistency(data):
     """Garantit que les données sont cohérentes avant insertion - AVEC MARQUE"""
     if not data:
@@ -584,7 +659,9 @@ def update_product_in_database(product_id, data, site_name, scraping_success=Tru
                 'image': data.get('image', '')[:500] if data.get('image') else None,
                 'url': data.get('product_url', '')[:500] if data.get('product_url') else None,
                 'brand': clean_brand_name(data.get('brand', ''))[:100] if data.get('brand') else None,
-                'attributes': data.get('attributes', '') if data.get('attributes') else None
+                'attributes': data.get('attributes', '') if data.get('attributes') else None,
+                'price': data.get('price'),
+                'old_price': data.get('old_price')
             }
             
             # CORRECTION: Vérifier d'abord si le produit existe
@@ -608,6 +685,8 @@ def update_product_in_database(product_id, data, site_name, scraping_success=Tru
                 {site_name}_url = %s,
                 {site_name}_brand = %s,
                 {site_name}_attributes = %s,
+                {site_name}_price = %s,
+                {site_name}_old_price = %s,
                 {site_name}_scraped_at = NOW(),
                 {site_name}_status = 1
             WHERE id = %s
@@ -623,6 +702,8 @@ def update_product_in_database(product_id, data, site_name, scraping_success=Tru
                 cleaned_data['url'],
                 cleaned_data['brand'],
                 cleaned_data['attributes'],
+                cleaned_data['price'],
+                cleaned_data['old_price'],
                 product_id
             ))
             

@@ -209,6 +209,7 @@ def merge_data():
         final_image = get_best_image(images)
         
         # Pour la marque, on prend celle de la source description ou la première dispo
+        final_brand = next((x['value'] for x in brands if x['source'] == desc_source), None)
         if not final_brand and brands:
             final_brand = brands[0]['value']
             
