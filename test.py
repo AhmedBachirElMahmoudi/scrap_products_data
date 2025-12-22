@@ -3,7 +3,13 @@ from datetime import datetime
 import re
 import time
 import unicodedata
-from database import get_dix_connection, get_temp_connection
+from database import connect_scraper, connect_wp_ozar0
+
+def get_dix_connection():
+    return connect_wp_ozar0()
+
+def get_temp_connection():
+    return connect_scraper()
 
 def create_product_slug(cnx_dix, title, reference, max_length=100):
     """Crée un slug optimisé à partir du titre avec gestion des doublons"""
@@ -1201,7 +1207,9 @@ def update_product_in_wordpress(product):
 
 if __name__ == "__main__":
     # Exécute la synchronisation complète
-    # main()
+    #main()
     
     # Pour tester un produit spécifique, décommentez la ligne ci-dessous :
-    test_single_product("845B6EA")
+    test_single_product("B0CG3AS")
+
+

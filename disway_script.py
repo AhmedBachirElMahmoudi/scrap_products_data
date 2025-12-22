@@ -7,7 +7,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 import traceback
-from database import get_disway_connection
+from database import connect_scraper
+import mysql.connector
 from datetime import datetime
 from contextlib import contextmanager
 
@@ -20,7 +21,7 @@ def get_db_connection():
     """Context manager pour gérer automatiquement les connexions"""
     cnx = None
     try:
-        cnx = get_disway_connection()
+        cnx = connect_scraper()
         yield cnx
     except Exception as e:
         print(f"❌ Erreur connexion DB: {e}")
@@ -214,7 +215,6 @@ def extract_product_data(product_element, id_categorie):
             'price': price,
             'reduction': reduction,
             'url': url,
-            'id_categorie': id_categorie,
         }
         
         return product_data
@@ -250,16 +250,15 @@ def update_or_insert_products(products):
                         print(f"   📊 Progression: {index}/{total_products} ({index/total_products*100:.1f}%)")
                     
                     # Vérifier si le produit existe déjà par référence
-                    check_query = "SELECT id_product FROM ps_product WHERE reference = %s"
+                    check_query = "SELECT id_product FROM dix_disway WHERE reference = %s"
                     cursor.execute(check_query, (product['ref'],))
                     existing_product = cursor.fetchone()
                     
                     if existing_product:
                         # UPDATE du produit existant
                         update_query = """
-                        UPDATE ps_product 
-                        SET id_category_default = %s, 
-                            price = %s, 
+                        UPDATE dix_disway 
+                        SET price = %s, 
                             wholesale_price = %s, 
                             reduction = %s, 
                             quantity = %s,
@@ -267,7 +266,6 @@ def update_or_insert_products(products):
                         WHERE reference = %s
                         """
                         cursor.execute(update_query, (
-                            product['id_categorie'],
                             product['price'],
                             product['old_price'],
                             product['reduction'],
@@ -278,18 +276,17 @@ def update_or_insert_products(products):
                         
                     else:
                         # INSERT nouveau produit
-                        cursor.execute("SELECT COALESCE(MAX(id_product), 0) + 1 FROM ps_product")
+                        cursor.execute("SELECT COALESCE(MAX(id_product), 0) + 1 FROM dix_disway")
                         new_id = cursor.fetchone()[0]
                         
                         insert_query = """
-                        INSERT INTO ps_product 
-                        (id_product, reference, id_category_default, price, wholesale_price, reduction, quantity, marge_inf) 
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO dix_disway 
+                        (id_product, reference, price, wholesale_price, reduction, quantity, marge_inf) 
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         """
                         cursor.execute(insert_query, (
                             new_id,
                             product['ref'],
-                            product['id_categorie'],
                             product['price'],
                             product['old_price'],
                             product['reduction'],

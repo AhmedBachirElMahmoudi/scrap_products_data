@@ -4,7 +4,7 @@ Script pour CORRIGER les id_category_default basé sur les subcategories
 """
 
 import mysql.connector
-from database import get_temp_connection
+from database import connect_scraper
 import logging
 import sys
 import time
@@ -15,7 +15,6 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('fix_categories.log', encoding='utf-8'),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -37,7 +36,7 @@ class CategoryFixer:
     def connect(self):
         """Établit la connexion à la base de données"""
         try:
-            self.conn = get_temp_connection()
+            self.conn = connect_scraper()
             if self.conn and self.conn.is_connected():
                 self.cursor = self.conn.cursor(dictionary=True)
                 self.logger.info("✅ Connexion à la base de données réussie")
@@ -47,6 +46,25 @@ class CategoryFixer:
                 return False
         except Exception as e:
             self.logger.error(f"❌ Erreur de connexion: {e}")
+            return False
+            
+    def ensure_category_table_exists(self):
+        """Vérifie et crée la table categories_scrap si nécessaire"""
+        try:
+            query = """
+            CREATE TABLE IF NOT EXISTS categories_scrap (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                nom_scrap VARCHAR(255) NOT NULL,
+                id_categorie_dix INT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_nom_scrap (nom_scrap)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """
+            self.cursor.execute(query)
+            # self.logger.info("✅ Table categories_scrap vérifiée/créée")
+            return True
+        except Exception as e:
+            self.logger.error(f"❌ Erreur création table categories: {e}")
             return False
     
     def get_category_mapping(self) -> Dict:
@@ -145,6 +163,11 @@ class CategoryFixer:
     
     def fix_categories(self):
         """Corrige les catégories basé sur les subcategories"""
+        
+        # Assurer que la table existe
+        if not self.ensure_category_table_exists():
+            return False
+            
         # Charger le mapping
         category_mapping = self.get_category_mapping()
         if not category_mapping['exact']:
@@ -266,11 +289,7 @@ def main():
     print("⚠️  ATTENTION: Ce script MODIFIE la base de données")
     print("="*70)
     
-    # Confirmation
-    response = input("❓ Voulez-vous continuer? (oui/non): ")
-    if response.lower() not in ['oui', 'o', 'yes', 'y']:
-        print("❌ Opération annulée")
-        return False
+    # Confirmation removed per user request
     
     start_time = time.time()
     
@@ -306,7 +325,7 @@ def main():
             fixed_rate = (fixer.stats['categories_fixed'] / fixer.stats['products_processed']) * 100
             print(f"📈 Taux de correction: {fixed_rate:.1f}%")
         
-        print("💡 Consultez fix_categories.log pour les détails")
+
         print("="*70)
         
         return True

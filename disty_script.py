@@ -7,7 +7,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException
 import traceback
-from database import get_disty_connection
+from database import connect_scraper
 import mysql.connector
 from datetime import datetime
 from contextlib import contextmanager
@@ -17,7 +17,7 @@ def get_db_connection():
     """Context manager pour gérer automatiquement les connexions"""
     cnx = None
     try:
-        cnx = get_disty_connection()
+        cnx = connect_scraper()
         yield cnx
     except Exception as e:
         print(f"❌ Erreur connexion DB: {e}")
@@ -147,7 +147,6 @@ def extract_product_data(product_element, id_categorie):
             'remise_price': remise_price,
             'reduction': reduction,
             'url': url,
-            'id_categorie': id_categorie,
         }
         
         return product_data
@@ -156,11 +155,34 @@ def extract_product_data(product_element, id_categorie):
         print(f"      ❌ Erreur extraction données produit: {e}")
         return None
 
+def deduplicate_products(products):
+    """Déduplique les produits par référence (garde le dernier scrapé)"""
+    unique_products = {}
+    duplicates_count = 0
+    
+    for product in products:
+        ref = product['ref']
+        if ref in unique_products:
+            duplicates_count += 1
+        unique_products[ref] = product
+    
+    deduplicated = list(unique_products.values())
+    
+    print(f"\n🔍 DÉDUPLICATION:")
+    print(f"   📦 Produits scrapés (brut): {len(products)}")
+    print(f"   🔄 Doublons détectés: {duplicates_count}")
+    print(f"   ✅ Produits uniques: {len(deduplicated)}")
+    
+    return deduplicated
+
 def update_or_insert_products(products):
     """Met à jour ou insère les produits dans ps_product"""
     if not products:
         print("❌ Aucun produit à sauvegarder")
         return False
+    
+    # DÉDUPLICATION AVANT SAUVEGARDE
+    products = deduplicate_products(products)
         
     try:
         with get_db_connection() as cnx:
@@ -174,7 +196,7 @@ def update_or_insert_products(products):
             error_count = 0
             
             total_products = len(products)
-            print(f"\n💾 Sauvegarde de {total_products} produits dans la base...")
+            print(f"\n💾 Sauvegarde de {total_products} produits uniques dans la base...")
             
             for index, product in enumerate(products, 1):
                 try:
@@ -183,16 +205,15 @@ def update_or_insert_products(products):
                         print(f"   📊 Progression: {index}/{total_products} ({index/total_products*100:.1f}%)")
                     
                     # Vérifier si le produit existe déjà par référence
-                    check_query = "SELECT id_product FROM ps_product WHERE reference = %s"
+                    check_query = "SELECT id_product FROM dix_disty WHERE reference = %s"
                     cursor.execute(check_query, (product['ref'],))
                     existing_product = cursor.fetchone()
                     
                     if existing_product:
                         # UPDATE du produit existant
                         update_query = """
-                        UPDATE ps_product 
-                        SET id_category_default = %s, 
-                            price = %s, 
+                        UPDATE dix_disty
+                        SET price = %s, 
                             wholesale_price = %s, 
                             reduction = %s, 
                             quantity = %s,
@@ -200,7 +221,6 @@ def update_or_insert_products(products):
                         WHERE reference = %s
                         """
                         cursor.execute(update_query, (
-                            product['id_categorie'],
                             product['remise_price'],
                             product['public_price'],
                             product['reduction'],
@@ -211,18 +231,17 @@ def update_or_insert_products(products):
                         
                     else:
                         # INSERT nouveau produit
-                        cursor.execute("SELECT COALESCE(MAX(id_product), 0) + 1 FROM ps_product")
+                        cursor.execute("SELECT COALESCE(MAX(id_product), 0) + 1 FROM dix_disty")
                         new_id = cursor.fetchone()[0]
                         
                         insert_query = """
-                        INSERT INTO ps_product 
-                        (id_product, reference, id_category_default, price, wholesale_price, reduction, quantity, marge_inf) 
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO dix_disty 
+                        (id_product, reference, price, wholesale_price, reduction, quantity, marge_inf) 
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         """
                         cursor.execute(insert_query, (
                             new_id,
                             product['ref'],
-                            product['id_categorie'],
                             product['remise_price'],
                             product['public_price'],
                             product['reduction'],
@@ -243,7 +262,7 @@ def update_or_insert_products(products):
             print(f"   🔄 Produits mis à jour: {updated_count}")
             print(f"   ✅ Nouveaux produits insérés: {inserted_count}")
             print(f"   ❌ Erreurs: {error_count}")
-            print(f"   📦 Total traité: {len(products)} produits")
+            print(f"   📦 Total traité: {updated_count + inserted_count} produits")
             
             return True
             
@@ -264,8 +283,10 @@ def scrape_disty_products():
             return []
             
         all_products = []
+        seen_refs = set()  # Pour tracker les doublons en temps réel
         total_categories = len(categories)
         total_products_scraped = 0
+        duplicates_during_scrape = 0
         
         print(f"\n🎯 DÉBUT DU SCRAPING - {total_categories} catégories à traiter")
         print("=" * 70)
@@ -275,6 +296,7 @@ def scrape_disty_products():
             print(f"🔗 {link}")
             
             category_products = 0
+            category_duplicates = 0
             
             try:
                 driver.get(link)
@@ -301,7 +323,6 @@ def scrape_disty_products():
                     
                     if page_num > 1:
                         driver.get(page_url)
-                        # time.sleep(2)
 
                     products = driver.find_elements(By.CLASS_NAME, 'item-prd')
                     
@@ -310,32 +331,43 @@ def scrape_disty_products():
                         break
 
                     page_products = 0
+                    page_duplicates = 0
                     print(f"   ✅ {len(products)} produits trouvés sur la page")
 
                     for product in products:
                         try:
                             product_data = extract_product_data(product, id_categorie)
                             if product_data:
-                                all_products.append(product_data)
-                                page_products += 1
-                                total_products_scraped += 1
+                                ref = product_data['ref']
                                 
-                                # Afficher chaque produit
-                                stock_msg = "🟢 DISPO (10)" if product_data['qte'] == 10 else "🟡 LIMITE (1)" if product_data['qte'] == 1 else "🔴 RUPTURE (0)"
-                                print(f"      ✅ {product_data['ref']} | {stock_msg}")
+                                if ref in seen_refs:
+                                    # Doublon détecté
+                                    page_duplicates += 1
+                                    category_duplicates += 1
+                                    duplicates_during_scrape += 1
+                                    print(f"      🔄 DOUBLON: {ref}")
+                                else:
+                                    # Nouveau produit
+                                    seen_refs.add(ref)
+                                    all_products.append(product_data)
+                                    page_products += 1
+                                    total_products_scraped += 1
+                                    
+                                    stock_msg = "🟢 DISPO (10)" if product_data['qte'] == 10 else "🟡 LIMITE (1)" if product_data['qte'] == 1 else "🔴 RUPTURE (0)"
+                                    print(f"      ✅ {ref} | {stock_msg}")
                                 
                         except Exception as e:
                             print(f"      ❌ Erreur produit: {e}")
                             continue
                     
                     category_products += page_products
-                    print(f"   📦 {page_products} produits ajoutés de cette page")
+                    print(f"   📦 {page_products} nouveaux produits + {page_duplicates} doublons sur cette page")
                 
-                print(f"   🎉 Catégorie terminée: {category_products} produits")
+                print(f"   🎉 Catégorie terminée: {category_products} nouveaux produits, {category_duplicates} doublons")
                 
                 # Progression globale
                 progress = (index / total_categories) * 100
-                print(f"   📊 Progression globale: {index}/{total_categories} catégories ({progress:.1f}%)")
+                print(f"   📊 Progression: {index}/{total_categories} catégories ({progress:.1f}%) | {total_products_scraped} produits uniques")
                 
             except Exception as e:
                 print(f"❌ Erreur catégorie {id_categorie}: {e}")
@@ -346,7 +378,8 @@ def scrape_disty_products():
         print("🎉 SCRAPING DISTY TERMINÉ !")
         print(f"📊 RÉSULTATS FINAUX:")
         print(f"   📂 Catégories traitées: {total_categories}")
-        print(f"   📦 Produits scrapés: {total_products_scraped}")
+        print(f"   📦 Produits uniques: {total_products_scraped}")
+        print(f"   🔄 Doublons ignorés: {duplicates_during_scrape}")
         
         if all_products:
             stock_10 = sum(1 for p in all_products if p['qte'] == 10)
@@ -391,7 +424,7 @@ def scrape_and_save_disty_products():
         if db_success:
             print(f"\n🎉 PROCESSUS DISTY TERMINÉ AVEC SUCCÈS!")
             print(f"⏱️  Durée totale: {duration:.2f} secondes")
-            print(f"📦 Produits traités: {len(products)}")
+            print(f"📦 Produits uniques traités: {len(products)}")
             print(f"🕐 Fin: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         else:
             print(f"\n⚠️ PROCESSUS DISTY TERMINÉ AVEC DES ERREURS")

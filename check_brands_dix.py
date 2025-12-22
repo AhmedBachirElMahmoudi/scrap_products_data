@@ -4,7 +4,7 @@ Script pour CORRIGER AUTOMATIQUEMENT les brand_id basé sur les brand
 """
 
 import mysql.connector
-from database import get_temp_connection
+from database import connect_scraper
 import logging
 import sys
 import time
@@ -15,7 +15,6 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('fix_brands_auto.log', encoding='utf-8'),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -38,7 +37,7 @@ class BrandFixerAuto:
     def connect(self):
         """Établit la connexion à la base de données"""
         try:
-            self.conn = get_temp_connection()
+            self.conn = connect_scraper()
             if self.conn and self.conn.is_connected():
                 self.cursor = self.conn.cursor(dictionary=True)
                 self.logger.info("✅ Connexion à la base de données réussie")
@@ -48,6 +47,29 @@ class BrandFixerAuto:
                 return False
         except Exception as e:
             self.logger.error(f"❌ Erreur de connexion: {e}")
+            return False
+            
+    def ensure_mapping_table_exists(self):
+        """Vérifie et crée la table ps_brands_mapping si nécessaire"""
+        try:
+            query = """
+            CREATE TABLE IF NOT EXISTS ps_brands_mapping (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                brand_name VARCHAR(255) NOT NULL,
+                brand_slug VARCHAR(255) NOT NULL,
+                external_id INT DEFAULT NULL,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_brand_slug (brand_slug),
+                INDEX idx_brand_name (brand_name)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """
+            self.cursor.execute(query)
+            # self.logger.info("✅ Table ps_brands_mapping vérifiée/créée")
+            return True
+        except Exception as e:
+            self.logger.error(f"❌ Erreur création table mapping: {e}")
             return False
     
     def get_brand_mapping(self) -> Dict:
@@ -211,6 +233,10 @@ class BrandFixerAuto:
         """Corrige les brand_id basé sur les brand"""
         self.logger.info("🔧 Début de la correction automatique des marques...")
         
+        # Assurer que la table mapping existe
+        if not self.ensure_mapping_table_exists():
+            return False
+            
         # Charger le mapping
         brand_mapping = self.get_brand_mapping()
         if not brand_mapping['exact']:
@@ -380,7 +406,7 @@ def main():
             fixed_rate = (fixer.stats['brands_fixed'] / fixer.stats['products_processed']) * 100
             print(f"📈 Taux de correction: {fixed_rate:.1f}%")
         
-        print("💡 Consultez fix_brands_auto.log pour les détails")
+
         print("="*70)
         
         return True
