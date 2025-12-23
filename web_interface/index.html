@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comparaison de Prix - DIX vs Concurrents</title>
+    <link rel="stylesheet" href="static/css/styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Comparaison de Prix</h1>
+            <p>DIX vs 7 Sites Concurrents</p>
+            <div class="stats" id="stats">
+                <div class="stat-card">
+                    <div class="stat-number" id="total-products">-</div>
+                    <div class="stat-label">Produits</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="dix-cheaper">-</div>
+                    <div class="stat-label">DIX Moins Cher</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="dix-percentage">-%</div>
+                    <div class="stat-label">Taux de Compétitivité</div>
+                </div>
+            </div>
+        </header>
+
+        <div class="controls">
+            <div class="search-box">
+                <input type="text" id="search-input" placeholder="Rechercher par référence...">
+            </div>
+            <div class="filter-buttons">
+                <button class="btn active" id="filter-all" onclick="filterProducts('all')">Tous</button>
+                <button class="btn" id="filter-cheaper" onclick="filterProducts('cheaper')">DIX Moins Cher</button>
+                <button class="btn" id="filter-expensive" onclick="filterProducts('expensive')">DIX Plus Cher</button>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>Chargement...</p>
+            </div>
+            <table id="products-table" style="display:none;">
+                <thead>
+                    <tr>
+                        <th>Référence</th>
+                        <th>DIX</th>
+                        <th>Crenova</th>
+                        <th>Duga</th>
+                        <th>LinkSolutions</th>
+                        <th>Tabtel</th>
+                        <th>Mies</th>
+                        <th>Rightech</th>
+                        <th>Joutech</th>
+                        <th>Écart</th>
+                        <th>Statut</th>
+                    </tr>
+                </thead>
+                <tbody id="products-body"></tbody>
+            </table>
+            <div id="no-results" class="no-results" style="display:none;">
+                <p>Aucun produit trouvé</p>
+            </div>
+        </div>
+
+        <div class="pagination" id="pagination" style="display:none;">
+            <button id="btn-first" onclick="goToPage(1)">Première</button>
+            <button id="btn-prev" onclick="previousPage()">Précédent</button>
+            <span id="page-info">Page 1 / 1</span>
+            <button id="btn-next" onclick="nextPage()">Suivant</button>
+            <button id="btn-last" onclick="goToPage(totalPages)">Dernière</button>
+        </div>
+    </div>
+
+    <script src="static/js/app.js"></script>
+</body>
+
+</html>

@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import re
 import time
-from utils import get_all_products_from_db, get_product_info_for_scraping, update_product_in_database
+from utils import get_all_products_from_db, get_product_info_for_scraping, update_product_in_database, extract_price
 from utils_2 import clean_encoding, clean_html_content, strip_problematic_characters
 import json
 
@@ -82,6 +82,7 @@ def scraper_mies_product_details(product_url, expected_reference):
         image_url = extract_mies_image(soup)
         brand = extract_mies_brand(soup)
         attributes = extract_mies_attributes(soup) # NOUVEAU
+        price, old_price = extract_price_mies(soup)  # NOUVEAU - Extraction du prix
         
         # Assurer la cohérence des données comme dans update_product_in_database
         if not categories_data.get('subcategories') and categories_data.get('categories'):
@@ -102,6 +103,8 @@ def scraper_mies_product_details(product_url, expected_reference):
             'subcategories': categories_data.get('subcategories'),
             'image': image_url,  # Note: utiliser 'image' au lieu de 'image_url' pour la cohérence
             'brand': brand,
+            'price': price,  # NOUVEAU
+            'old_price': old_price,  # NOUVEAU,
             'attributes': json.dumps(attributes, ensure_ascii=False) if attributes else None,
             'product_url': product_url,
             'status': 'success',
@@ -446,6 +449,66 @@ def extract_mies_attributes(soup):
     except Exception as e:
         print(f"❌ Erreur extraction attributs mies: {e}")
         return None
+
+
+def extract_price_mies(soup):
+    """Extrait le prix depuis MIES"""
+    try:
+        print("💰 [MIES] Recherche du prix...")
+        
+        # Méthode 1: Prix avec itemprop="price"
+        price_meta = soup.find('meta', itemprop='price')
+        if price_meta:
+            price_text = price_meta.get('content')
+            if price_text:
+                price = extract_price(price_text)
+                if price:
+                    print(f"✅ [MIES] Prix trouvé (meta): {price} MAD")
+                    return price, None
+        
+        # Méthode 2: Prix WooCommerce
+        price_selectors = [
+            '.price ins .woocommerce-Price-amount',
+            '.price .woocommerce-Price-amount',
+            '.current-price span[itemprop="price"]',
+            '.product-price',
+            '.price',
+            'span.price'
+        ]
+        
+        for selector in price_selectors:
+            price_element = soup.select_one(selector)
+            if price_element:
+                price_text = price_element.get_text(strip=True)
+                price = extract_price(price_text)
+                if price:
+                    print(f"✅ [MIES] Prix trouvé ({selector}): {price} MAD")
+                    
+                    # Chercher ancien prix
+                    old_price = None
+                    old_price_selectors = [
+                        '.price del .woocommerce-Price-amount',
+                        '.regular-price',
+                        '.old-price',
+                        '.was-price'
+                    ]
+                    
+                    for old_selector in old_price_selectors:
+                        old_price_element = soup.select_one(old_selector)
+                        if old_price_element:
+                            old_price_text = old_price_element.get_text(strip=True)
+                            old_price = extract_price(old_price_text)
+                            if old_price and old_price > price:
+                                print(f"✅ [MIES] Ancien prix trouvé: {old_price} MAD")
+                                break
+                    
+                    return price, old_price
+        
+        print("⚠️ [MIES] Aucun prix trouvé")
+        return None, None
+    except Exception as e:
+        print(f"❌ Erreur extraction prix MIES: {e}")
+        return None, None
 
 def scrap_product_for_site(reference, site_name):
     """

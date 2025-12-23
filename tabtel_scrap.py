@@ -3,7 +3,7 @@ import urllib.parse
 import re
 from bs4 import BeautifulSoup
 import json
-from utils import clean_text, clean_brand_name, clean_site_names_from_title,ensure_data_consistency, normalize_image_url , get_all_products_from_db , get_product_info_for_scraping , update_product_in_database
+from utils import clean_text, clean_brand_name, clean_site_names_from_title,ensure_data_consistency, normalize_image_url , get_all_products_from_db , get_product_info_for_scraping , update_product_in_database, extract_price
 import time
 
 def scraper_tabtel_detaille(reference):
@@ -165,7 +165,8 @@ def scraper_tabtel_product_details(product_url, expected_reference):
         attributes = extract_attributes_tabtel(soup)
         categories_data = extract_categories_tabtel(soup)
         image_url = extract_main_image_tabtel(soup)
-        brand = extract_brand_tabtel(soup)  # NOUVEAU
+        brand = extract_brand_tabtel(soup)
+        price, old_price = extract_price_tabtel(soup)  # NOUVEAU  # NOUVEAU
         
         # 🔥 CORRECTION: Appliquer la cohérence immédiatement
         if categories_data.get('categories') and not categories_data.get('subcategories'):
@@ -185,7 +186,9 @@ def scraper_tabtel_product_details(product_url, expected_reference):
             'subcategories': categories_data.get('subcategories'),
             'product_url': product_url,
             'image': image_url,
-            'brand': brand  # NOUVEAU
+            'brand': brand,
+            'price': price,  # NOUVEAU
+            'old_price': old_price  # NOUVEAU
         }
         
         return ensure_data_consistency(data)
@@ -641,6 +644,97 @@ def extract_brand_tabtel(soup):
     except Exception as e:
         print(f"❌ Erreur extraction marque Tabtel: {e}")
         return None
+
+
+def extract_price_tabtel(soup):
+    """Extrait le prix depuis TABTEL"""
+    try:
+        print("💰 [TABTEL] Recherche du prix...")
+        
+        # Méthode 1: Meta tag product:price:amount (le plus fiable)
+        price_meta = soup.find('meta', property='product:price:amount')
+        if price_meta:
+            price_text = price_meta.get('content')
+            if price_text:
+                price = extract_price(price_text)
+                if price:
+                    print(f"✅ [TABTEL] Prix trouvé (meta): {price} MAD")
+                    
+                    # Chercher ancien prix dans le contexte du produit uniquement
+                    old_price = None
+                    product_container = soup.select_one('#product, .primary_block')
+                    if product_container:
+                        old_price_selectors = [
+                            '#old_price_display',
+                            '.old-price',
+                            '#reduction_amount'
+                        ]
+                        
+                        for old_selector in old_price_selectors:
+                            old_price_element = product_container.select_one(old_selector)
+                            if old_price_element:
+                                old_price_text = old_price_element.get_text(strip=True)
+                                old_price = extract_price(old_price_text)
+                                if old_price and old_price > price:
+                                    print(f"✅ [TABTEL] Ancien prix trouvé: {old_price} MAD")
+                                    break
+                    
+                    return price, old_price
+        
+        # Méthode 2: ID spécifique #our_price_display (évite les éléments du menu)
+        price_element = soup.select_one('#our_price_display')
+        if price_element:
+            price_text = price_element.get_text(strip=True)
+            price = extract_price(price_text)
+            if price:
+                print(f"✅ [TABTEL] Prix trouvé (#our_price_display): {price} MAD")
+                
+                # Chercher ancien prix
+                old_price = None
+                product_container = soup.select_one('#product, .primary_block')
+                if product_container:
+                    old_price_element = product_container.select_one('#old_price_display, .old-price')
+                    if old_price_element:
+                        old_price_text = old_price_element.get_text(strip=True)
+                        old_price = extract_price(old_price_text)
+                        if old_price and old_price > price:
+                            print(f"✅ [TABTEL] Ancien prix trouvé: {old_price} MAD")
+                
+                return price, old_price
+        
+        # Méthode 3: Chercher dans le conteneur du produit principal uniquement
+        product_container = soup.select_one('#product, .primary_block, .product-container')
+        if product_container:
+            price_selectors = [
+                'span[itemprop="price"]',
+                '.current_price',
+                '.our_price_display'
+            ]
+            
+            for selector in price_selectors:
+                price_element = product_container.select_one(selector)
+                if price_element:
+                    price_text = price_element.get_text(strip=True)
+                    price = extract_price(price_text)
+                    if price:
+                        print(f"✅ [TABTEL] Prix trouvé ({selector}): {price} MAD")
+                        
+                        # Chercher ancien prix dans le même conteneur
+                        old_price = None
+                        old_price_element = product_container.select_one('#old_price_display, .old-price')
+                        if old_price_element:
+                            old_price_text = old_price_element.get_text(strip=True)
+                            old_price = extract_price(old_price_text)
+                            if old_price and old_price > price:
+                                print(f"✅ [TABTEL] Ancien prix trouvé: {old_price} MAD")
+                        
+                        return price, old_price
+        
+        print("⚠️ [TABTEL] Aucun prix trouvé")
+        return None, None
+    except Exception as e:
+        print(f"❌ Erreur extraction prix TABTEL: {e}")
+        return None, None
 
 def scrap_product_for_site(reference, site_name):
     """

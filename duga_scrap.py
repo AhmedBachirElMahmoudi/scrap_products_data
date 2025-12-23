@@ -3,7 +3,7 @@ import urllib.parse
 import re
 from bs4 import BeautifulSoup
 import json
-from utils import clean_text, clean_brand_name, clean_site_names_from_title,ensure_data_consistency, normalize_image_url , get_all_products_from_db , get_product_info_for_scraping , update_product_in_database
+from utils import clean_text, clean_brand_name, clean_site_names_from_title,ensure_data_consistency, normalize_image_url , get_all_products_from_db , get_product_info_for_scraping , update_product_in_database, extract_price
 import time
 
 def scraper_duga_detaille(reference):
@@ -142,14 +142,15 @@ def scraper_duga_product_details(product_url, expected_reference):
         
         print(f"✅ [DUGA] Référence vérifiée: {expected_reference}")
         
-        # Extraire les données (AVEC MARQUE)
+        # Extraire les données (AVEC MARQUE ET PRIX)
         title = extract_title_duga(soup)
         description = extract_specifications_table_html_duga(soup)
         short_description = extract_short_description_html_duga(soup)
         specifications_table = extract_specifications_table_duga(soup)
         categories_data = extract_categories_duga(soup)
         image_url = extract_main_image_duga(soup)
-        brand = extract_brand_duga(soup)  # NOUVEAU
+        brand = extract_brand_duga(soup)
+        price, old_price = extract_price_duga(soup)  # NOUVEAU
         
         # 🔥 CORRECTION: Appliquer la cohérence immédiatement
         if categories_data.get('categories') and not categories_data.get('subcategories'):
@@ -169,7 +170,9 @@ def scraper_duga_product_details(product_url, expected_reference):
             'subcategories': categories_data.get('subcategories'),
             'product_url': product_url,
             'image': image_url,
-            'brand': brand  # NOUVEAU
+            'brand': brand,
+            'price': price,  # NOUVEAU
+            'old_price': old_price  # NOUVEAU
         }
         
         return ensure_data_consistency(data)
@@ -502,6 +505,64 @@ def extract_brand_duga(soup):
     except Exception as e:
         print(f"❌ Erreur extraction marque Duga: {e}")
         return None
+
+def extract_price_duga(soup):
+    """Extrait le prix depuis Duga"""
+    try:
+        print("💰 [DUGA] Recherche du prix...")
+        
+        # Méthode 1: Meta tag product:price:amount (le plus fiable)
+        price_meta = soup.find('meta', property='product:price:amount')
+        if price_meta and price_meta.get('content'):
+            price_text = price_meta.get('content')
+            price = extract_price(price_text)
+            if price:
+                print(f"✅ [DUGA] Prix trouvé (meta): {price} MAD")
+                
+                # Chercher ancien prix dans le HTML
+                old_price_element = soup.select_one('.price del .woocommerce-Price-amount bdi')
+                old_price = None
+                if old_price_element:
+                    old_price_text = old_price_element.get_text(strip=True)
+                    old_price = extract_price(old_price_text)
+                    if old_price and old_price > price:
+                        print(f"✅ [DUGA] Ancien prix trouvé: {old_price} MAD")
+                
+                return price, old_price
+        
+        # Méthode 2: Prix WooCommerce standard dans ins (prix en promo)
+        price_element = soup.select_one('.price ins .woocommerce-Price-amount bdi')
+        if price_element:
+            price_text = price_element.get_text(strip=True)
+            price = extract_price(price_text)
+            if price:
+                print(f"✅ [DUGA] Prix trouvé (ins): {price} MAD")
+                
+                # Chercher ancien prix
+                old_price_element = soup.select_one('.price del .woocommerce-Price-amount bdi')
+                old_price = None
+                if old_price_element:
+                    old_price_text = old_price_element.get_text(strip=True)
+                    old_price = extract_price(old_price_text)
+                    if old_price and old_price > price:
+                        print(f"✅ [DUGA] Ancien prix trouvé: {old_price} MAD")
+                
+                return price, old_price
+        
+        # Méthode 3: Prix simple (pas de promo)
+        price_element = soup.select_one('.price .woocommerce-Price-amount bdi')
+        if price_element:
+            price_text = price_element.get_text(strip=True)
+            price = extract_price(price_text)
+            if price:
+                print(f"✅ [DUGA] Prix trouvé (simple): {price} MAD")
+                return price, None
+        
+        print("⚠️ [DUGA] Aucun prix trouvé")
+        return None, None
+    except Exception as e:
+        print(f"❌ Erreur extraction prix Duga: {e}")
+        return None, None
  
 def scrap_product_for_site(reference, site_name):
     """

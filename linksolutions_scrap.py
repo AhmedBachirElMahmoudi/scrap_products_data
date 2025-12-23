@@ -15,7 +15,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from bs4 import BeautifulSoup
 import json
-from utils import clean_text, clean_brand_name, clean_site_names_from_title,ensure_data_consistency, normalize_image_url , get_all_products_from_db , get_product_info_for_scraping , update_product_in_database
+from utils import clean_text, clean_brand_name, clean_site_names_from_title,ensure_data_consistency, normalize_image_url , get_all_products_from_db , get_product_info_for_scraping , update_product_in_database, extract_price
 import time
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
@@ -99,6 +99,7 @@ def scraper_linksolutions_detaille(reference):
         image_url = extract_main_image_linksolutions(soup)
         image_url = extract_main_image_linksolutions(soup)
         brand = extract_brand_linksolutions(soup)
+        price, old_price = extract_price_linksolutions(soup)  # NOUVEAU
         attributes = extract_attributes_linksolutions(soup)  # NOUVEAU
         
         # 🔥 CORRECTION: Appliquer la cohérence immédiatement
@@ -120,7 +121,9 @@ def scraper_linksolutions_detaille(reference):
             'subcategories': categories_data.get('subcategories'),
             'product_url': final_url,
             'image': image_url,
-            'brand': brand  # NOUVEAU
+            'brand': brand,
+            'price': price,  # NOUVEAU
+            'old_price': old_price  # NOUVEAU
         }
         
         return ensure_data_consistency(data)
@@ -496,6 +499,66 @@ def extract_main_image_linksolutions(soup):
     
     return None
 
+
+
+def extract_price_linksolutions(soup):
+    """Extrait le prix depuis LINKSOLUTIONS"""
+    try:
+        print("💰 [LINKSOLUTIONS] Recherche du prix...")
+        
+        # Méthode 1: Prix avec itemprop="price"
+        price_meta = soup.find('meta', itemprop='price')
+        if price_meta:
+            price_text = price_meta.get('content')
+            if price_text:
+                price = extract_price(price_text)
+                if price:
+                    print(f"✅ [LINKSOLUTIONS] Prix trouvé (meta): {price} MAD")
+                    return price, None
+        
+        # Méthode 2: Prix WooCommerce
+        price_selectors = [
+            '.price ins .woocommerce-Price-amount',
+            '.price .woocommerce-Price-amount',
+            '.current-price span[itemprop="price"]',
+            '.product-price',
+            '.price',
+            'span.price'
+        ]
+        
+        for selector in price_selectors:
+            price_element = soup.select_one(selector)
+            if price_element:
+                price_text = price_element.get_text(strip=True)
+                price = extract_price(price_text)
+                if price:
+                    print(f"✅ [LINKSOLUTIONS] Prix trouvé ({selector}): {price} MAD")
+                    
+                    # Chercher ancien prix
+                    old_price = None
+                    old_price_selectors = [
+                        '.price del .woocommerce-Price-amount',
+                        '.regular-price',
+                        '.old-price',
+                        '.was-price'
+                    ]
+                    
+                    for old_selector in old_price_selectors:
+                        old_price_element = soup.select_one(old_selector)
+                        if old_price_element:
+                            old_price_text = old_price_element.get_text(strip=True)
+                            old_price = extract_price(old_price_text)
+                            if old_price and old_price > price:
+                                print(f"✅ [LINKSOLUTIONS] Ancien prix trouvé: {old_price} MAD")
+                                break
+                    
+                    return price, old_price
+        
+        print("⚠️ [LINKSOLUTIONS] Aucun prix trouvé")
+        return None, None
+    except Exception as e:
+        print(f"❌ Erreur extraction prix LINKSOLUTIONS: {e}")
+        return None, None
 
 def scrap_product_for_site(reference, site_name):
     """

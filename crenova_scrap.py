@@ -4,7 +4,7 @@ import re
 from bs4 import BeautifulSoup
 import json
 import time
-from utils import clean_text, clean_brand_name, clean_site_names_from_title,ensure_data_consistency, normalize_image_url , get_all_products_from_db , get_product_info_for_scraping , update_product_in_database
+from utils import clean_text, clean_brand_name, clean_site_names_from_title,ensure_data_consistency, normalize_image_url , get_all_products_from_db , get_product_info_for_scraping , update_product_in_database, extract_price
 
 def scraper_crenova_detaille(reference):
     """Scrape les données détaillées pour une référence donnée - VERSION AVEC ENCODAGE URL"""
@@ -116,15 +116,15 @@ def scraper_crenova_product_details(product_url, expected_reference):
         
         print(f"✅ [CRENOVA] Référence vérifiée: {expected_reference}")
         
-        # Extraire les données (AVEC MARQUE)
+        # Extraire les données (AVEC MARQUE ET PRIX)
         title = extract_title_crenova(soup)
         description = extract_description_crenova(soup)
         short_description = extract_short_description_crenova(soup)
         categories_data = extract_categories_crenova(soup)
         image_url = extract_main_image_crenova(soup)
-        image_url = extract_main_image_crenova(soup)
         brand = extract_brand_crenova(soup)
-        attributes = extract_attributes_crenova(soup)  # NOUVEAU
+        attributes = extract_attributes_crenova(soup)
+        price, old_price = extract_price_crenova(soup)  # NOUVEAU
         
         # 🔥 CORRECTION: Appliquer la cohérence immédiatement
         if categories_data.get('categories') and not categories_data.get('subcategories'):
@@ -139,13 +139,14 @@ def scraper_crenova_product_details(product_url, expected_reference):
             'title': title,
             'description': description,
             'short_description': short_description,
-            'short_description': short_description,
             'attributes': attributes,
             'categories': categories_data.get('categories'),
             'subcategories': categories_data.get('subcategories'),
             'product_url': product_url,
             'image': image_url,
-            'brand': brand  # NOUVEAU
+            'brand': brand,
+            'price': price,  # NOUVEAU
+            'old_price': old_price  # NOUVEAU
         }
         
         return ensure_data_consistency(data)
@@ -530,6 +531,64 @@ def extract_attributes_crenova(soup):
         print(f"❌ Erreur extraction attributs Crenova: {e}")
         return None
 
+def extract_price_crenova(soup):
+    """Extrait le prix depuis Crenova"""
+    try:
+        print("💰 [CRENOVA] Recherche du prix...")
+        
+        # Méthode 1: Prix avec itemprop="price" - utiliser l'attribut content
+        price_span = soup.find('span', itemprop='price')
+        if price_span and price_span.get('content'):
+            price_text = price_span.get('content')
+            price = extract_price(price_text)
+            if price:
+                print(f"✅ [CRENOVA] Prix trouvé (itemprop content): {price} MAD")
+                
+                # Chercher ancien prix
+                old_price_element = soup.select_one('.regular-price, .old-price, .was-price')
+                old_price = None
+                if old_price_element:
+                    old_price_text = old_price_element.get_text(strip=True)
+                    old_price = extract_price(old_price_text)
+                    if old_price and old_price > price:
+                        print(f"✅ [CRENOVA] Ancien prix trouvé: {old_price} MAD")
+                
+                return price, old_price
+        
+        # Méthode 2: Div avec classe prix
+        price_selectors = [
+            '.current-price span[itemprop="price"]',
+            '.product-price',
+            '.price',
+            'span.price',
+            '.current-price'
+        ]
+        
+        for selector in price_selectors:
+            price_element = soup.select_one(selector)
+            if price_element:
+                price_text = price_element.get_text(strip=True)
+                price = extract_price(price_text)
+                if price:
+                    print(f"✅ [CRENOVA] Prix trouvé ({selector}): {price} MAD")
+                    
+                    # Chercher ancien prix (si promo)
+                    old_price = None
+                    old_price_element = soup.select_one('.regular-price, .old-price, .was-price')
+                    if old_price_element:
+                        old_price_text = old_price_element.get_text(strip=True)
+                        old_price = extract_price(old_price_text)
+                        if old_price and old_price > price:
+                            print(f"✅ [CRENOVA] Ancien prix trouvé: {old_price} MAD")
+                    
+                    return price, old_price
+        
+        print("⚠️ [CRENOVA] Aucun prix trouvé")
+        return None, None
+    except Exception as e:
+        print(f"❌ Erreur extraction prix Crenova: {e}")
+        return None, None
+
 def scrap_product_for_site(reference, site_name):
     """
     Scrape un produit pour un site spécifique - VERSION SIMPLIFIÉE
@@ -637,7 +696,7 @@ def main():
 
 if __name__ == "__main__":
     # Test avec un produit spécifique
-    # scrap_product_for_site("BK2F2EA", "crenova")
+    # scrap_product_for_site("85A36EA", "crenova")
     # if scraped_data:
     #     print(f"Données récupérées: {scraped_data}")
     
