@@ -16,7 +16,7 @@ body {
     margin: 0 auto;
     background: white;
     border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     overflow: hidden;
 }
 
@@ -46,10 +46,10 @@ header p {
 }
 
 .stat-card {
-    background: rgba(255,255,255,0.1);
+    background: rgba(255, 255, 255, 0.1);
     padding: 16px;
     border-radius: 6px;
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .stat-number {
@@ -166,6 +166,14 @@ tbody tr:hover {
     font-size: 1.1em;
 }
 
+.price-best-competitor {
+    color: #27ae60;
+    font-weight: 700;
+    background-color: rgba(39, 174, 96, 0.1);
+    border-radius: 4px;
+    padding: 2px 4px;
+}
+
 .price-null {
     color: #95a5a6;
     font-style: italic;
@@ -251,7 +259,9 @@ tbody tr:hover {
 }
 
 @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .spinner {

@@ -123,29 +123,91 @@ def phpserialize_attributes(attributes_dict):
     return serialized
 
 def get_or_create_term(cursor, name, taxonomy):
-    """Trouve ou cr'ee un terme de taxonomie et retourne son term_taxonomy_id."""
+    """
+    Trouve ou crée un terme de taxonomie et retourne (term_taxonomy_id, term_id).
+    Improved version to prevent duplicates.
+    """
     slug = name.lower().replace(" ", "-").replace("'", "-")
     slug = re.sub(r'[^a-z0-9-]', '', slug)
     
-    # 1. Chercher si le terme existe
+    # IMPROVED: First check if this exact name+taxonomy combination exists
     cursor.execute(f"""
-        SELECT tt.term_taxonomy_id 
-        FROM {WP_PREFIX}terms t
-        JOIN {WP_PREFIX}term_taxonomy tt ON t.term_id = tt.term_id
+        SELECT tt.term_taxonomy_id, tt.term_id
+        FROM {WP_PREFIX}term_taxonomy tt
+        JOIN {WP_PREFIX}terms t ON tt.term_id = t.term_id
         WHERE t.name = %s AND tt.taxonomy = %s
+        LIMIT 1
     """, (name, taxonomy))
     
-    result = cursor.fetchone()
-    if result:
-        return result[0]
+    existing = cursor.fetchone()
+    if existing:
+        # Found existing term with this exact name in this taxonomy
+        return existing[0], existing[1]
     
-    # 2. Cr'eer le terme s'il n'existe pas
-    print(f"   [NEW TERM] Creating {name} in {taxonomy}...")
-    cursor.execute(f"INSERT INTO {WP_PREFIX}terms (name, slug, term_group) VALUES (%s, %s, 0)", (name, slug))
-    term_id = cursor.lastrowid
+    # Also check by slug in case name varies slightly
+    cursor.execute(f"""
+        SELECT tt.term_taxonomy_id, tt.term_id
+        FROM {WP_PREFIX}term_taxonomy tt
+        JOIN {WP_PREFIX}terms t ON tt.term_id = t.term_id
+        WHERE t.slug = %s AND tt.taxonomy = %s
+        LIMIT 1
+    """, (slug, taxonomy))
     
-    cursor.execute(f"INSERT INTO {WP_PREFIX}term_taxonomy (term_id, taxonomy, description, parent, count) VALUES (%s, %s, '', 0, 0)", (term_id, taxonomy))
-    return cursor.lastrowid
+    existing_slug = cursor.fetchone()
+    if existing_slug:
+        # Found existing term with same slug in this taxonomy
+        return existing_slug[0], existing_slug[1]
+    
+    # No existing term found, create new one
+    # 1. Check if term exists in wp_terms (might be used in other taxonomies)
+    cursor.execute(f"SELECT term_id FROM {WP_PREFIX}terms WHERE slug = %s", (slug,))
+    term_res = cursor.fetchone()
+    
+    if term_res:
+        term_id = term_res[0]
+        # print(f"   [DEBUG] Reusing existing term '{name}' (ID: {term_id})")
+    else:
+        # Create new term
+        print(f"   [NEW TERM] Creating '{name}' in terms table...")
+        cursor.execute(f"INSERT INTO {WP_PREFIX}terms (name, slug, term_group) VALUES (%s, %s, 0)", (name, slug))
+        term_id = cursor.lastrowid
+    
+    # 2. Link term to taxonomy (we already checked this doesn't exist above)
+    print(f"   [NEW TAX] Linking term {term_id} to taxonomy {taxonomy}...")
+    cursor.execute(f"""
+        INSERT INTO {WP_PREFIX}term_taxonomy (term_id, taxonomy, description, parent, count) 
+        VALUES (%s, %s, '', 0, 0)
+    """, (term_id, taxonomy))
+    term_taxonomy_id = cursor.lastrowid
+    
+    return term_taxonomy_id, term_id
+
+def recalculate_term_counts(cursor_wp, conn_wp):
+    """
+    Recalcule les compteurs pour toutes les taxonomies d'attributs (pa_%).
+    Ceci est crtique pour que les filtres fonctionnent.
+    """
+    print("\n[COUNTS] Recalculating term counts...")
+    
+    # Mettre à jour les compteurs basés sur les relations réelles
+    query = f"""
+        UPDATE {WP_PREFIX}term_taxonomy tt
+        SET count = (
+            SELECT COUNT(*)
+            FROM {WP_PREFIX}term_relationships tr
+            WHERE tr.term_taxonomy_id = tt.term_taxonomy_id
+        )
+        WHERE tt.taxonomy LIKE 'pa_%'
+    """
+    
+    try:
+        cursor_wp.execute(query)
+        affected = cursor_wp.rowcount
+        print(f"   Success! Updated counts for {affected} attribute terms.")
+        conn_wp.commit()
+    except Exception as e:
+        print(f"   X Error updating counts: {e}")
+
 
 def sync_product_attributes(sku=None):
     """Synchronise les attributs d'un produit ou de tous les produits."""
@@ -194,13 +256,23 @@ def sync_product_attributes(sku=None):
                 brand_res = cursor_source.fetchone()
                 if brand_res:
                     brand_name = brand_res['brand_name']
-                    tti = get_or_create_term(cursor_wp, brand_name, 'pa_marque')
+                    tti, term_id = get_or_create_term(cursor_wp, brand_name, 'pa_marque')
 
-                    
                     # Lier au produit
                     cursor_wp.execute(f"REPLACE INTO {WP_PREFIX}term_relationships (object_id, term_taxonomy_id) VALUES (%s, %s)", (post_id, tti))
+                    
+                    # Mise à jour de la table de lookup pour le filtrage
+                    sql_lookup = f"""
+                        REPLACE INTO {WP_PREFIX}wc_product_attributes_lookup 
+                        (product_id, product_or_parent_id, taxonomy, term_id, is_variation_attribute, in_stock)
+                        VALUES (%s, %s, 'pa_marque', %s, 0, 1)
+                    """
+                    print(f"   [DEBUG] Lookup Insert: Prod={post_id}, TermID={term_id}")
+                    cursor_wp.execute(sql_lookup, (post_id, post_id, term_id))
+                    
                     attributes_to_register['pa_marque'] = brand_name
                     print(f"   [BRAND] Linked to pa_marque: {brand_name}")
+                    conn_wp.commit()  # Commit immédiat
 
             # B. G'erer les autres ATTRIBUTS (JSON)
             if source_attrs:
@@ -238,10 +310,22 @@ def sync_product_attributes(sku=None):
                             taxonomy = re.sub(r'[^a-z0-9-_]', '', taxonomy)
                             print(f"   [NEW] '{attr_name}' -> {taxonomy}")
                         
-                        tti = get_or_create_term(cursor_wp, attr_val, taxonomy)
+                        # Troncature pour ėviter "Data too long"
+                        if len(attr_val) > 190:
+                            attr_val = attr_val[:190] + "..."
+                        
+                        tti, term_id = get_or_create_term(cursor_wp, attr_val, taxonomy)
                         
                         # Lier au produit
                         cursor_wp.execute(f"REPLACE INTO {WP_PREFIX}term_relationships (object_id, term_taxonomy_id) VALUES (%s, %s)", (post_id, tti))
+                        
+                        # Mise à jour de la table de lookup pour le filtrage
+                        cursor_wp.execute(f"""
+                            REPLACE INTO {WP_PREFIX}wc_product_attributes_lookup 
+                            (product_id, product_or_parent_id, taxonomy, term_id, is_variation_attribute, in_stock)
+                            VALUES (%s, %s, %s, %s, 0, 1)
+                        """, (post_id, post_id, taxonomy, term_id))
+                        
                         attributes_to_register[taxonomy] = attr_val
                         print(f"   [ATTR] Linked to {taxonomy}: {attr_val}")
                 except Exception as e:
@@ -262,6 +346,9 @@ def sync_product_attributes(sku=None):
                 print(f"   [META] Updated _product_attributes ({len(attributes_to_register)} items)")
 
             conn_wp.commit()
+
+        # Recalculer les compteurs globalement une fois le lot termin'e
+        recalculate_term_counts(cursor_wp, conn_wp)
 
     finally:
         cursor_source.close()

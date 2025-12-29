@@ -162,7 +162,7 @@ def clean_product_brand_duplicates(sku):
 # MAIN
 # =========================================================
 if __name__ == "__main__":
-    SKUS = ['886J1EA']
+    SKUS = ['90NB12H2-M00DZ0']
     ACTION = "check"  # check | clean
 
     for sku in SKUS:

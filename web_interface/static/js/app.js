@@ -83,17 +83,23 @@ function displayProducts(products) {
         const row = document.createElement('tr');
         const statusBadge = getStatusBadge(product.status);
         const diffText = product.dix_vs_min || '-';
+        const minPrice = product.min_competitor;
+
+        // Helper to check if a specific price is the minimum
+        const isBestPrice = (price) => {
+            return minPrice && price === minPrice;
+        };
 
         row.innerHTML = `
             <td><strong>${product.reference}</strong></td>
             <td class="price price-dix">${formatPrice(product.dix_price)}</td>
-            <td class="price">${formatPrice(product.competitor_prices.crenova)}</td>
-            <td class="price">${formatPrice(product.competitor_prices.duga)}</td>
-            <td class="price">${formatPrice(product.competitor_prices.linksolutions)}</td>
-            <td class="price">${formatPrice(product.competitor_prices.tabtel)}</td>
-            <td class="price">${formatPrice(product.competitor_prices.mies)}</td>
-            <td class="price">${formatPrice(product.competitor_prices.rightech)}</td>
-            <td class="price">${formatPrice(product.competitor_prices.joutech)}</td>
+            <td class="price ${isBestPrice(product.competitor_prices.crenova) ? 'price-best-competitor' : ''}">${formatPrice(product.competitor_prices.crenova)}</td>
+            <td class="price ${isBestPrice(product.competitor_prices.duga) ? 'price-best-competitor' : ''}">${formatPrice(product.competitor_prices.duga)}</td>
+            <td class="price ${isBestPrice(product.competitor_prices.linksolutions) ? 'price-best-competitor' : ''}">${formatPrice(product.competitor_prices.linksolutions)}</td>
+            <td class="price ${isBestPrice(product.competitor_prices.tabtel) ? 'price-best-competitor' : ''}">${formatPrice(product.competitor_prices.tabtel)}</td>
+            <td class="price ${isBestPrice(product.competitor_prices.mies) ? 'price-best-competitor' : ''}">${formatPrice(product.competitor_prices.mies)}</td>
+            <td class="price ${isBestPrice(product.competitor_prices.rightech) ? 'price-best-competitor' : ''}">${formatPrice(product.competitor_prices.rightech)}</td>
+            <td class="price ${isBestPrice(product.competitor_prices.joutech) ? 'price-best-competitor' : ''}">${formatPrice(product.competitor_prices.joutech)}</td>
             <td class="${getDiffClass(diffText)}">${diffText}</td>
             <td>${statusBadge}</td>
         `;

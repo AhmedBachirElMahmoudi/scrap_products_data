@@ -171,13 +171,13 @@ def get_cheaper_products():
         FROM ps_products_comparison_v2
         WHERE price IS NOT NULL
         AND (
-            (crenova_price IS NULL OR price < crenova_price) AND
-            (duga_price IS NULL OR price < duga_price) AND
-            (linksolutions_price IS NULL OR price < linksolutions_price) AND
-            (tabtel_price IS NULL OR price < tabtel_price) AND
-            (mies_price IS NULL OR price < mies_price) AND
-            (rightech_price IS NULL OR price < rightech_price) AND
-            (joutech_price IS NULL OR price < joutech_price)
+            (crenova_price IS NULL OR (price * 1.2) < crenova_price) AND
+            (duga_price IS NULL OR (price * 1.2) < duga_price) AND
+            (linksolutions_price IS NULL OR (price * 1.2) < (linksolutions_price * 1.2)) AND
+            (tabtel_price IS NULL OR (price * 1.2) < tabtel_price) AND
+            (mies_price IS NULL OR (price * 1.2) < mies_price) AND
+            (rightech_price IS NULL OR (price * 1.2) < rightech_price) AND
+            (joutech_price IS NULL OR (price * 1.2) < joutech_price)
         )
         ORDER BY reference
         """
@@ -272,13 +272,13 @@ def get_stats():
         FROM ps_products_comparison_v2
         WHERE price IS NOT NULL
         AND (
-            (crenova_price IS NULL OR price <= crenova_price) AND
-            (duga_price IS NULL OR price <= duga_price) AND
-            (linksolutions_price IS NULL OR price <= linksolutions_price) AND
-            (tabtel_price IS NULL OR price <= tabtel_price) AND
-            (mies_price IS NULL OR price <= mies_price) AND
-            (rightech_price IS NULL OR price <= rightech_price) AND
-            (joutech_price IS NULL OR price <= joutech_price)
+            (crenova_price IS NULL OR (price * 1.2) <= crenova_price) AND
+            (duga_price IS NULL OR (price * 1.2) <= duga_price) AND
+            (linksolutions_price IS NULL OR (price * 1.2) <= (linksolutions_price * 1.2)) AND
+            (tabtel_price IS NULL OR (price * 1.2) <= tabtel_price) AND
+            (mies_price IS NULL OR (price * 1.2) <= mies_price) AND
+            (rightech_price IS NULL OR (price * 1.2) <= rightech_price) AND
+            (joutech_price IS NULL OR (price * 1.2) <= joutech_price)
         )
         """
         cursor.execute(query)
@@ -305,7 +305,8 @@ def get_stats():
 
 def enrich_product_data(product):
     """Enrichit les données produit avec calculs de comparaison"""
-    dix_price = float(product['dix_price']) if product['dix_price'] else None
+    # Application du coefficient 1.2 (TTC) sur le prix DIX
+    dix_price = (float(product['dix_price']) * 1.2) if product['dix_price'] else None
     
     # Liste des prix concurrents
     competitor_prices = []
@@ -316,6 +317,10 @@ def enrich_product_data(product):
         price = product.get(f'{site}_price')
         if price:
             price_float = float(price)
+            # Application du coefficient 1.2 (TTC) si le site est LinkSolutions
+            if site == 'linksolutions':
+                price_float = price_float * 1.2
+            
             competitor_prices.append(price_float)
             competitor_data[site] = price_float
         else:
