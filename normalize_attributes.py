@@ -16,6 +16,9 @@ def normalize_processor(value):
         return value
         
     lv = value.lower()
+    # Remove trademark symbols/artifacts that interfere with regex
+    lv = re.sub(r'[®™]', '', lv)
+    lv = re.sub(r'\s+', ' ', lv).strip()
     
     # 1. Intel Core iX
     if re.search(r'i3', lv): return "Intel Core i3"
@@ -54,34 +57,36 @@ def normalize_processor(value):
 def normalize_ram(value):
     """
     Normalise la RAM pour garder uniquement la capacite principale.
-    
-    Exemples:
-    - "1 x 16 Go de memoire DDR5" -> "16 Go"
-    - "8GB DDR4 2666MHz" -> "8 Go"
-    - "1.5 TO" -> "1.5 To"
+    Accepte uniquement les tailles standards (2-128 Go).
     """
     if not value:
         return value
 
-    # Cas Teraoctets
-    match_to = re.search(r'(\d+[\.,]?\d*)\s*(?:To|TB|teraoctets?)', value, re.IGNORECASE)
-    if match_to:
-        size = match_to.group(1).replace(',', '.')
-        return f"{size} To"
+    # Si c'est en To/TB, ce n'est PAS de la RAM (pour ce contexte PC)
+    if re.search(r'To|TB|teraoctets?', value, re.IGNORECASE):
+        # On retourne une marque speciale pour suppression
+        return "DELETE_ME_NOT_RAM"
 
     # Extraire la capacite en Go
     # Cas "1 x 16 Go"
     match = re.search(r'(\d+)\s*x\s*(\d+)\s*G[oB]?', value, re.IGNORECASE)
+    total = 0
     if match:
         total = int(match.group(1)) * int(match.group(2))
-        return f"{total} Go"
+    else:
+        # Cas "16 Go", "16 GB", "16 G"
+        match = re.search(r'(\d+)\s*G[oB]?', value, re.IGNORECASE)
+        if match:
+            total = int(match.group(1))
     
-    # Cas "16 Go", "16 GB", "16 G"
-    match = re.search(r'(\d+)\s*G[oB]?', value, re.IGNORECASE)
-    if match:
-        return f"{match.group(1)} Go"
+    if total > 0:
+        # Whitelist des tailles valides pour éviter "256 Go" (SSD) ou "115 Go" (bug)
+        if total in [1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24, 32, 48, 64, 96, 128]:
+            return f"{total} Go"
+        else:
+            return "DELETE_ME_INVALID_SIZE"
     
-    return value
+    return "DELETE_ME_NO_MATCH"
 
 def normalize_storage(value):
     """
@@ -97,19 +102,16 @@ def normalize_storage(value):
         return value
     
     capacity = match.group(1)
-    unit = match.group(2).upper()
+    raw_unit = match.group(2).upper()
     
     # Normaliser l'unite
-    if unit in ['GB']:
+    if raw_unit in ['GB', 'GO']:
         unit = 'Go'
-    elif unit in ['TB']:
+    elif raw_unit in ['TB', 'TO']:
         unit = 'To'
+    else:
+        unit = raw_unit.capitalize() # Fallback, though regex restricts to explicit list
     
-    # Detecter le type
-    storage_type = "SSD" if "ssd" in value.lower() else "HDD" if "hdd" in value.lower() else ""
-    
-    if storage_type:
-        return f"{capacity} {unit} {storage_type}"
     return f"{capacity} {unit}"
 
 def normalize_screen(value):
@@ -125,6 +127,10 @@ def normalize_screen(value):
     if not value:
         return value
         
+    # Exclure les affichages de lignes (ex: imprimantes "LCD 2 lignes")
+    if re.search(r'\b(lignes?|lines?)\b', value, re.IGNORECASE):
+        return value
+
     # Nettoyer les caracteres bizarres
     value = value.replace('?', '').strip()
     
@@ -276,6 +282,28 @@ def normalize_all_attributes():
                 print(f"  Ancien: {original_name}")
                 print(f"  Nouveau: {normalized_name}")
                 
+                if normalized_name.startswith("DELETE_ME"):
+                     print(f"  -> SUPPRESSION IMMEDIATE (Terme invalide detecte)")
+                     # We delete the current term
+                     tt_id = None
+                     # Need to fetch TT_ID if not present in 'term' dict? 'term' dict has term_id, name, slug, taxonomy.
+                     # The select query was: SELECT t.term_id, t.name, t.slug, tt.taxonomy FROM ...
+                     # Wait, I need tt.term_taxonomy_id for deletion. The SELECT query didn't fetch it!
+                     # I must fetch it now.
+                     cursor_inner.execute(f"SELECT term_taxonomy_id FROM {WP_PREFIX}term_taxonomy WHERE term_id = %s", (term['term_id'],))
+                     tt_res = cursor_inner.fetchone()
+                     if tt_res:
+                         tt_id = tt_res['term_taxonomy_id']
+                         # 1. Relations
+                         cursor_inner.execute(f"DELETE FROM {WP_PREFIX}term_relationships WHERE term_taxonomy_id = %s", (tt_id,))
+                         # 2. Lookup
+                         cursor_inner.execute(f"DELETE FROM {WP_PREFIX}wc_product_attributes_lookup WHERE term_id = %s", (term['term_id'],))
+                         # 3. Taxonomy
+                         cursor_inner.execute(f"DELETE FROM {WP_PREFIX}term_taxonomy WHERE term_taxonomy_id = %s", (tt_id,))
+                         # 4. Term
+                         cursor_inner.execute(f"DELETE FROM {WP_PREFIX}terms WHERE term_id = %s", (term['term_id'],))
+                     continue
+
                 # Chercher si le terme normalise existe deja
                 normalized_slug = normalized_name.lower().replace(' ', '-')
                 normalized_slug = re.sub(r'[^a-z0-9-]', '', normalized_slug)

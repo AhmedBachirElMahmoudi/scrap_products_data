@@ -209,6 +209,46 @@ def recalculate_term_counts(cursor_wp, conn_wp):
         print(f"   X Error updating counts: {e}")
 
 
+def fix_lookup_table(cursor_wp, conn_wp):
+    """
+    Reconstruit la table wc_product_attributes_lookup pour tous les attributs.
+    Cette table est essentielle pour que les filtres WooCommerce fonctionnent.
+    """
+    print("\n[LOOKUP] Rebuilding product attributes lookup table...")
+    
+    try:
+        # 1. Vider la table de lookup pour les attributs (pa_%)
+        print("   Clearing existing lookup entries...")
+        cursor_wp.execute(f"DELETE FROM {WP_PREFIX}wc_product_attributes_lookup WHERE taxonomy LIKE 'pa_%'")
+        
+        # 2. Reconstruire à partir des relations réelles
+        print("   Rebuilding from term_relationships...")
+        query = f"""
+            INSERT INTO {WP_PREFIX}wc_product_attributes_lookup 
+            (product_id, product_or_parent_id, taxonomy, term_id, is_variation_attribute, in_stock)
+            SELECT 
+                tr.object_id as product_id,
+                tr.object_id as product_or_parent_id,
+                tt.taxonomy,
+                tt.term_id,
+                0 as is_variation_attribute,
+                1 as in_stock
+            FROM {WP_PREFIX}term_relationships tr
+            JOIN {WP_PREFIX}term_taxonomy tt ON tr.term_taxonomy_id = tt.term_taxonomy_id
+            WHERE tt.taxonomy LIKE 'pa_%'
+            AND tr.object_id IN (
+                SELECT ID FROM {WP_PREFIX}posts WHERE post_type = 'product'
+            )
+        """
+        cursor_wp.execute(query)
+        affected = cursor_wp.rowcount
+        print(f"   Success! Inserted {affected} lookup entries.")
+        conn_wp.commit()
+    except Exception as e:
+        print(f"   X Error rebuilding lookup table: {e}")
+        conn_wp.rollback()
+
+
 def sync_product_attributes(sku=None):
     """Synchronise les attributs d'un produit ou de tous les produits."""
     conn_source = connect_scraper()
