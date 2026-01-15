@@ -1210,6 +1210,6 @@ if __name__ == "__main__":
     #main()
     
     # Pour tester un produit spécifique, décommentez la ligne ci-dessous :
-    test_single_product("P28352-B21")
+    test_single_product("C31C513057")
 
 

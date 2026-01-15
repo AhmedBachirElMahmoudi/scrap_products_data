@@ -572,7 +572,7 @@ def get_all_products_from_db(site_name):
 def get_product_info_for_scraping(reference, site_name):
     try:
         # Vérifier que le site est valide
-        valid_sites = ['crenova', 'duga', 'linksolutions', 'tabtel', 'mies', 'rightech' , 'joutech']
+        valid_sites = ['crenova', 'duga', 'linksolutions', 'tabtel', 'mies', 'rightech', 'joutech', 'ultrapc']
         if site_name not in valid_sites:
             print(f"❌ Nom de site invalide: {site_name}")
             return None
@@ -654,10 +654,10 @@ def update_product_in_database(product_id, data, site_name, scraping_success=Tru
                 'title': clean_text(data.get('title', ''))[:255] if data.get('title') else None,
                 'description': clean_text(final_description) if final_description else None,
                 'short_description': clean_text(final_short_description)[:65535] if final_short_description else None,
-                'categories': clean_text(final_categories)[:255] if final_categories else None,
-                'subcategories': clean_text(final_subcategories)[:255] if final_subcategories else None,
-                'image': data.get('image', '')[:500] if data.get('image') else None,
-                'url': data.get('product_url', '')[:500] if data.get('product_url') else None,
+                'categories': clean_text(final_categories)[:65000] if final_categories else None,
+                'subcategories': clean_text(final_subcategories)[:65000] if final_subcategories else None,
+                'image': data.get('image', '')[:65000] if data.get('image') else None,
+                'url': data.get('product_url', '')[:65000] if data.get('product_url') else None,
                 'brand': clean_brand_name(data.get('brand', ''))[:100] if data.get('brand') else None,
                 'attributes': data.get('attributes', '') if data.get('attributes') else None,
                 'price': data.get('price'),

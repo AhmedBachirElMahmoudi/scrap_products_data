@@ -471,6 +471,26 @@ def extract_attributes_crenova(soup):
                 print(f"✅ [CRENOVA] {len(attributes)} attributs trouvés via table")
                 return json.dumps(attributes, ensure_ascii=False)
         
+        # Méthode 1.5: Table dans la zone de description courte (st_read_more_box)
+        # Prioritaire sur les sections génériques qui contiennent parfois des données erronées (template laptop oublié)
+        boxes = soup.find_all('div', class_='st_read_more_box')
+        for box in boxes:
+            table = box.find('table')
+            if table:
+                temp_attrs = {}
+                rows = table.find_all('tr')
+                for row in rows:
+                    cols = row.find_all(['td', 'th'])
+                    if len(cols) >= 2:
+                        key = cols[0].get_text(strip=True).rstrip(':')
+                        value = cols[1].get_text(strip=True)
+                        if key and value:
+                            temp_attrs[key] = value
+                
+                if temp_attrs:
+                    print(f"✅ [CRENOVA] {len(temp_attrs)} attributs trouvés via table dans st_read_more_box")
+                    return json.dumps(temp_attrs, ensure_ascii=False)
+        
         # Méthode 2: Chercher une section Fiche Technique
         sections = soup.find_all(['section', 'div'], class_=['page-product-box', 'product-features', 'tab-pane'])
         for section in sections:
@@ -696,7 +716,7 @@ def main():
 
 if __name__ == "__main__":
     # Test avec un produit spécifique
-    # scrap_product_for_site("85A36EA", "crenova")
+    # scrap_product_for_site("C31C513057", "crenova")
     # if scraped_data:
     #     print(f"Données récupérées: {scraped_data}")
     

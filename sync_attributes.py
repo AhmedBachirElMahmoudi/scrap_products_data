@@ -88,6 +88,19 @@ ATTRIBUTE_MAPPING = {
     "garantie": "garantie",
 }
 
+# Attributs à ignorer complètement (ne pas importer dans WooCommerce)
+IGNORED_ATTRIBUTES = [
+    "modèle cpu", "temp", "mémoire système", "description du produit", 
+    "type de produit", "format", "contrôleur de stockage", 
+    "baies de disque dur", "réseaux", "alimentation", 
+    "spécifications techniques", "modèle de télécommande",
+    "garantie du fabricant", "services inclus", "poids", "dimensions (lxpxh)",
+    "hauteur", "largeur", "profondeur", "poids du paquet", "dimensions du paquet",
+    "hauteur du colis", "largeur du colis", "profondeur du colis",
+    "ean", "upc", "part number", "référence constructeur", "numéro de pièce fabricant",
+    "indice de réparabilité", "indice das"
+]
+
 def map_attribute_name(attr_name):
     """
     Mappe un nom d'attribut vers une taxonomie WooCommerce existante.
@@ -288,6 +301,15 @@ def sync_product_attributes(sku=None):
             
             post_id = wp_res[0]
             attributes_to_register = {}
+
+            # VÉRIFICATION: Si le produit a déjà des attributs, on passe
+            cursor_wp.execute(f"SELECT meta_value FROM {WP_PREFIX}postmeta WHERE post_id=%s AND meta_key='_product_attributes'", (post_id,))
+            existing_attr_row = cursor_wp.fetchone()
+            
+            # 'a:0:{}' est le tableau vide sérialisé en PHP
+            if existing_attr_row and existing_attr_row[0] and existing_attr_row[0] != 'a:0:{}':
+                print(f"   [SKIP] Le produit a déjà des attributs (SKU: {ref})")
+                continue
             
             # A. G'erer la MARQUE (pa_marque)
             if brand_id:
@@ -334,6 +356,11 @@ def sync_product_attributes(sku=None):
                                 items.append((name, val))
                     
                     for attr_name, attr_val in items:
+                        # Ignorer les attributs indésirables
+                        if attr_name.lower().strip() in IGNORED_ATTRIBUTES:
+                            # print(f"   [Ignored] {attr_name}")
+                            continue
+
                         # Essayer de mapper vers un attribut WooCommerce existant
                         mapped_name = map_attribute_name(attr_name)
                         

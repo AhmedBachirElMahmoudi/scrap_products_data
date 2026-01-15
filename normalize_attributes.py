@@ -191,7 +191,9 @@ def delete_erroneous_terms(conn, cursor):
         "Type de produit", "Format", "Contrôleur de stockage", 
         "Baies de disque dur", "Réseaux", "Alimentation",
         "Spécifications techniques", "Modèle de télécommande",
-        "Garantie du fabricant", "Services inclus", "Poids", "Dimensions (LxPxH)"
+        "Garantie du fabricant", "Services inclus", "Poids", "Dimensions (LxPxH)",
+        "Hauteur", "Largeur", "Profondeur", "Poids du paquet", "Dimensions du paquet",
+        "EAN", "UPC", "Part Number", "Référence constructeur", "Numéro de pièce fabricant"
     ]
     
     print("\n=== NETTOYAGE DES TERMES ERRONES ===")
@@ -226,6 +228,46 @@ def delete_erroneous_terms(conn, cursor):
     conn.commit()
     print(f"Termes errones supprimes: {total_deleted}\n")
 
+def delete_garbage_values(conn, cursor):
+    """Supprime les termes qui sont des valeurs poubelles (N/A, -, etc)."""
+    garbage_values = [
+        "N/A", "n/a", "NA", "Non spécifié", "Non specifie", 
+        "Aucun", "None", "-", "--", "---", "?", "Non", "Oui/Non"
+    ]
+    
+    print("\n=== NETTOYAGE DES VALEURS POUBELLES ===")
+    
+    total_deleted = 0
+    for val in garbage_values:
+        cursor.execute(f"""
+            SELECT t.term_id, tt.term_taxonomy_id, tt.taxonomy
+            FROM {WP_PREFIX}terms t
+            JOIN {WP_PREFIX}term_taxonomy tt ON t.term_id = tt.term_id
+            WHERE t.name = %s AND tt.taxonomy LIKE 'pa_%%'
+        """, (val,))
+        
+        to_del = cursor.fetchall()
+        for item in to_del:
+            tt_id = item['term_taxonomy_id']
+            term_id = item['term_id']
+            tax = item['taxonomy']
+            
+            print(f"  Suppression de '{val}' dans {tax}...")
+            
+            # 1. Relations
+            cursor.execute(f"DELETE FROM {WP_PREFIX}term_relationships WHERE term_taxonomy_id = %s", (tt_id,))
+            # 2. Lookup - IMPORTANT: Supprimer aussi du lookup pour eviter les erreurs
+            cursor.execute(f"DELETE FROM {WP_PREFIX}wc_product_attributes_lookup WHERE term_id = %s", (term_id,))
+            # 3. Taxonomie
+            cursor.execute(f"DELETE FROM {WP_PREFIX}term_taxonomy WHERE term_taxonomy_id = %s", (tt_id,))
+            # 4. Terme
+            cursor.execute(f"DELETE FROM {WP_PREFIX}terms WHERE term_id = %s", (term_id,))
+            
+            total_deleted += 1
+            
+    conn.commit()
+    print(f"Valeurs poubelles supprimees: {total_deleted}\n")
+
 def normalize_attribute_value(taxonomy, value):
     """Applique la normalisation appropriee selon le type d'attribut."""
     taxonomy_lower = taxonomy.lower()
@@ -252,6 +294,7 @@ def normalize_all_attributes():
     try:
         # 1. Nettoyer les termes errones d'abord
         delete_erroneous_terms(conn, cursor)
+        delete_garbage_values(conn, cursor)
         
         print("=== NORMALISATION DES ATTRIBUTS ===\n")
         
